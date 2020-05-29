@@ -972,9 +972,37 @@ static gboolean vfo_press_event_cb(GtkWidget *widget,GdkEventButton *event,gpoin
     case BUTTON_BMK:
       switch(event->button) {
         case 1:  // LEFT
-          if(rx->bookmark_dialog==NULL) {
-            rx->bookmark_dialog=create_bookmark_dialog(rx,VIEW_BOOKMARKS,NULL);
-          }
+          g_print("Diversity rx %d\n", rx->diversity);
+          if(rx->diversity) {
+            //Delete receiver
+            int this_mixer = rx->dmix_id;
+            //int hidden_rx_channel = radio->divmixer[this_mixer]->rx_hidden->channel;
+            delete_diversity_mixer(radio->divmixer[this_mixer]);
+                     
+            //delete_receiver(radio->receiver[hidden_rx_channel]);
+            rx->diversity = FALSE;
+          } else {
+            //RADIO *r=(RADIO *)data;
+            // Full capacity for mixers
+            // if (radio->diversity_mixers < 1) 
+            g_print("Add new rx\n");
+            int new_hidden_rx  = add_receiver(radio, FALSE);            
+            if (new_hidden_rx > 0) {
+              g_print("-----------Hidden RX added %d\n", new_hidden_rx);
+              int dmix_num = add_diversity_mixer(radio, rx, radio->receiver[new_hidden_rx]);
+              if (dmix_num > -1) {
+                g_print("Vis mix chan %d\n", rx->dmix_id);
+                g_print("Hid mix chan %d\n", radio->receiver[new_hidden_rx]->dmix_id); 
+                g_print("channel %d\n", radio->divmixer[dmix_num]->rx_hidden->channel);            
+                create_diversity_dialog(radio->divmixer[dmix_num]);
+                rx->diversity = TRUE;
+              }
+              
+            } else {
+              g_print("^^^^^^^^Failed to add new rx\n");
+            }
+            
+          }        
           break;
         case 3:  // RIGHT
           if(rx->bookmark_dialog==NULL) {
@@ -2148,7 +2176,7 @@ void update_vfo(RECEIVER *rx) {
     
     cairo_move_to(cr, x, 58);
     SetColour(cr, DARK_TEXT); 
-    cairo_show_text(cr, "BMK");
+    cairo_show_text(cr, "DIV");
     x+=35;
 
     cairo_move_to(cr,x,58);

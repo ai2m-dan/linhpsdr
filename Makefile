@@ -134,6 +134,8 @@ frequency.c\
 rigctl.c\
 error_handler.c\
 radio_info.c\
+diversity_mixer.c\
+diversity_dialog.c\
 bpsk.c
 
 HEADERS=\
@@ -184,6 +186,8 @@ frequency.h\
 rigctl.h\
 error_handler.h\
 radio_info.h\
+diversity_mixer.h\
+diversity_dialog.h\
 bpsk.h
 
 OBJS=\
@@ -233,6 +237,8 @@ frequency.o\
 rigctl.o\
 error_handler.o\
 radio_info.o\
+diversity_mixer.o\
+diversity_dialog.o\
 bpsk.o
 
 

@@ -41,6 +41,7 @@
 #include "wideband.h"
 #include "adc.h"
 #include "dac.h"
+#include "diversity_mixer.h"
 #include "radio.h"
 #include "tx_panadapter.h"
 #include "protocol1.h"
@@ -497,6 +498,16 @@ void vox_changed(RADIO *r) {
 }
 
 void frequency_changed(RECEIVER *rx) {
+    // Diversity mixer hidden rx synced to the rx which is
+    // visualised    
+    if (radio->divmixer[rx->dmix_id] != NULL) {
+      if (radio->divmixer[rx->dmix_id]->rx_visual == rx) {
+        radio->divmixer[rx->dmix_id]->rx_hidden->frequency_a = rx->frequency_a;    
+        radio->divmixer[rx->dmix_id]->rx_hidden->frequency_b = rx->frequency_b;  
+      }
+    }  
+  
+  
   if(rx->ctun) {
     gint64 offset;
     rx->ctun_offset=rx->ctun_frequency-rx->frequency_a;
@@ -513,6 +524,18 @@ void frequency_changed(RECEIVER *rx) {
     }
     SetRXAShiftFreq(rx->channel, (double)offset);
     RXANBPSetShiftFrequency(rx->channel, (double)offset);
+    
+    // Diversity mixer hidden rx synced to the rx which is
+    // visualised, this allow CTUN to work       
+    if (radio->divmixer[rx->dmix_id] != NULL) {
+      if (radio->divmixer[rx->dmix_id]->rx_visual == rx) {      
+        int channel = radio->divmixer[rx->dmix_id]->rx_hidden->channel;
+                 
+        SetRXAShiftFreq(channel, (double)offset);
+        RXANBPSetShiftFrequency(channel, (double)offset);      
+      }
+    }
+    
 #ifdef SOAPYSDR
     if(radio->discovered->protocol==PROTOCOL_SOAPYSDR) {
       if(radio->can_transmit) {
@@ -560,9 +583,16 @@ void delete_wideband(WIDEBAND *w) {
 }
 
 void delete_receiver(RECEIVER *rx) {
+  // Receiver may have a diveristy mixer connected,
+  // this removes the mixer and hidden rx for that mixer
+  if (radio->divmixer[rx->dmix_id] != NULL) {
+    delete_diversity_mixer(radio->divmixer[rx->dmix_id]);
+  }
+  
   int i;
   for(i=0;i<radio->discovered->supported_receivers;i++) {
     if(radio->receiver[i]==rx) {
+      g_print("delete rx %d\n", i);
       if(radio->discovered->protocol==PROTOCOL_1) {
         protocol1_stop();
       }
@@ -600,6 +630,29 @@ g_print("delete_receiver: receivers now %d\n",radio->receivers);
     gtk_widget_destroy(radio->dialog);
     radio->dialog=NULL;
   }
+}
+
+void delete_diversity_mixer(DIVMIXER *dmix) {
+  int i;
+  int hidden_channel;
+
+  for (i = 0; i < MAX_DIVERSITY_MIXERS; i++) {
+    if(radio->divmixer[i]==dmix) {
+      g_print("delete div mixer %d\n", i);
+      radio->divmixer[i]->rx_visual->dmix_id = MAX_DIVERSITY_MIXERS+1;     
+      radio->divmixer[i]->rx_hidden->dmix_id = MAX_DIVERSITY_MIXERS+1; 
+      // Store the hidden channel before we delete the
+      // mixer
+      hidden_channel = radio->divmixer[i]->rx_hidden->channel;           
+      radio->divmixer[i]=NULL;
+      radio->diversity_mixers--;
+
+g_print("delete_diversity_mixer: dmixers now %d\n",radio->diversity_mixers);
+      break;
+    }
+  }
+  // Delete the hidden receiver
+  if (radio->receiver[hidden_channel] != NULL) delete_receiver(radio->receiver[hidden_channel]);
 }
 
 static void rxtx(RADIO *r) {
@@ -747,7 +800,7 @@ static gboolean tune_cb(GtkWidget *widget,gpointer data) {
   return TRUE;
 }
 
-int add_receiver(void *data) {
+int add_receiver(void *data, gboolean show_rx) {
   RADIO *r=(RADIO *)data;
   int i;
   for(i=0;i<r->discovered->supported_receivers;i++) {
@@ -757,7 +810,13 @@ int add_receiver(void *data) {
   }
   if(i<r->discovered->supported_receivers) {
 g_print("add_receiver: using receiver %d\n",i);
-    r->receiver[i]=create_receiver(i,r->sample_rate);
+    
+    if (!show_rx) {
+      g_print("add_receiver: no visuals %d\n",i);      
+      r->receiver[i]=create_receiver(i,r->sample_rate, FALSE);
+    } else {
+      r->receiver[i]=create_receiver(i,r->sample_rate, TRUE);
+    }
     r->receivers++;
 g_print("add_receiver: receivers now %d\n",r->receivers);
     if(r->discovered->protocol==PROTOCOL_2) {
@@ -765,6 +824,7 @@ g_print("add_receiver: receivers now %d\n",r->receivers);
     }
   } else {
 g_print("add_receiver: no receivers available\n");
+    i = -1;
   }
   if(r->receivers==r->discovered->supported_receivers) {
     gtk_widget_set_sensitive(add_receiver_b,FALSE);
@@ -773,7 +833,34 @@ g_print("add_receiver: no receivers available\n");
     gtk_widget_destroy(radio->dialog);
     radio->dialog=NULL;
   }
-  return 0;
+  return i;
+}
+
+
+int add_diversity_mixer(void *data, RECEIVER *rx_visual, RECEIVER *rx_hidden) { 
+  RADIO *r=(RADIO *)data;
+  int i = 0;
+  
+  for (i = 0; i < MAX_DIVERSITY_MIXERS; i++) {
+    if(r->divmixer[i]==NULL) {
+      break;
+    }
+  }
+  
+  if (i < MAX_DIVERSITY_MIXERS) {
+  
+g_print("add_diversity_mixer: using diversity mixer %d\n",i);  
+  
+    r->divmixer[i] = create_diversity_mixer(i, rx_visual, rx_hidden);
+    rx_visual->dmix_id = i;
+    rx_hidden->dmix_id = i;
+    radio->diversity_mixers++;
+  } else {
+g_print("add_diversity_mixer: no diversity mixers available\n");
+    i = -1;
+  }
+  
+  return i;  
 }
 
 void add_receivers(RADIO *r) {
@@ -788,7 +875,7 @@ void add_receivers(RADIO *r) {
 
   // always add receiver 0
   if(receivers==0) {
-    r->receiver[0]=create_receiver(0,r->sample_rate);
+    r->receiver[0]=create_receiver(0,r->sample_rate, TRUE);
     r->receivers++;
     switch(r->discovered->protocol) {
       case PROTOCOL_2:
@@ -807,7 +894,7 @@ void add_receivers(RADIO *r) {
       sprintf(name,"receiver[%d].channel",i);
       value=getProperty(name);
       if(value!=NULL) {
-        r->receiver[i]=create_receiver(i,r->sample_rate);
+        r->receiver[i]=create_receiver(i,r->sample_rate, TRUE);
         r->receivers++;
         switch(r->discovered->protocol) {
           case PROTOCOL_2:
@@ -864,7 +951,7 @@ int add_wideband(void *data) {
 
 static gboolean add_receiver_cb(GtkWidget *widget,gpointer data) {
   RADIO *r=(RADIO *)data;
-  add_receiver(r);
+  add_receiver(r, TRUE);
   return TRUE;
 }
 
@@ -1039,6 +1126,12 @@ g_print("create_radio for %s %d\n",d->name,d->device);
   }
   r->active_receiver=NULL;
   r->transmitter=NULL;
+  
+  r->diversity_mixers = 0;
+  for(i=0;i< r->diversity_mixers; i++) {
+    r->divmixer[i] = NULL;
+  }  
+  r->divmixer[MAX_DIVERSITY_MIXERS+1] = NULL;
 
   r->can_transmit=TRUE;
 #ifdef SOAPYSDR

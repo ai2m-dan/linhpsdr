@@ -21,11 +21,14 @@
 #define RADIO_H
 
 #define MAX_RECEIVERS 8
+#define MAX_DIVERSITY_MIXERS 2
 
 #define MAX_BUFFER_SIZE 2048
 
 #define TRANSMITTER_CHANNEL 8
 #define WIDEBAND_CHANNEL 9
+
+#include "diversity_mixer.h"
 
 enum {
   ANAN_10=0,
@@ -74,9 +77,11 @@ typedef struct _radio {
   gint sample_rate;
   gint buffer_size;
   gint receivers;
+  gint diversity_mixers;
   RECEIVER *receiver[MAX_RECEIVERS];
   TRANSMITTER *transmitter;
   RECEIVER *active_receiver;
+  DIVMIXER *divmixer[MAX_DIVERSITY_MIXERS+1];
   gint alex_rx_antenna;
   gint alex_tx_antenna;
   gdouble meter_calibration;
@@ -216,7 +221,10 @@ extern int radio_start(void *data);
 extern gboolean isTransmitting(RADIO *r);
 extern RADIO *create_radio(DISCOVERED *d);
 extern void delete_receiver(RECEIVER *rx);
+extern void delete_diversity_mixer(DIVMIXER *dmix);
 extern void frequency_changed(RECEIVER *rx);
+extern int add_receiver(void *data, gboolean show_rx);
+extern int add_diversity_mixer(void *data, RECEIVER *rx_visual, RECEIVER *rx_hidden); // TODO - does this *need* a prototype?
 extern void add_receivers(RADIO *r);
 extern void add_transmitter(RADIO *r);
 extern void radio_save_state(RADIO *radio);
