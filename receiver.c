@@ -1416,7 +1416,7 @@ void add_iq_samples(RECEIVER *rx,double i_sample,double q_sample) {
     // seperate channel to the rx and must all be done pre normal RX dsp
     if (radio->divmixer[rx->dmix_id] != NULL) {
       int mixer = rx->dmix_id;
-      g_print("Mixer %d\n", mixer);
+      //g_print("Mixer %d\n", mixer);
       // Diversity uses 2 rx channels, if the order of these is processed incorrectly, WDSP
       // will be working with 1 packet ahead/behind.
       // Main RX # is less than hidden rx
